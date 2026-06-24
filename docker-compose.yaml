@@ -1,0 +1,51 @@
+name: stocksense-bd
+
+services:
+  mysql:
+    image: 'mysql:8.0'
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: stocksense
+      MYSQL_USER: stocksense
+      MYSQL_PASSWORD: stocksense
+    ports:
+      - '3306:3306'
+    volumes:
+      - stocksense_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "stocksense", "-pstocksense"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: 'pgvector/pgvector:pg16'
+    environment:
+      POSTGRES_DB: stocksense_vectors
+      POSTGRES_USER: stocksense
+      POSTGRES_PASSWORD: stocksense
+    ports:
+      - '5432:5432'
+    volumes:
+      - stocksense_pgvector_data:/var/lib/postgresql/data
+
+  redis:
+    image: 'redis:7-alpine'
+    ports:
+      - '6379:6379'
+    volumes:
+      - stocksense_redis_data:/data
+
+  rabbitmq:
+    image: 'rabbitmq:3-management-alpine'
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    volumes:
+      - stocksense_rabbitmq_data:/var/lib/rabbitmq
+
+volumes:
+  stocksense_mysql_data:
+  stocksense_pgvector_data:
+  stocksense_redis_data:
+  stocksense_rabbitmq_data:
