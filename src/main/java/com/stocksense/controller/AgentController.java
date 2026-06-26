@@ -1,22 +1,26 @@
 package com.stocksense.controller;
 
 import com.stocksense.agent.FestivalForecastAgent;
+import com.stocksense.agent.InsightAgent;
 import com.stocksense.agent.anthropic.AnthropicClient;
 import com.stocksense.agent.job.ReorderJobPublisher;
 import com.stocksense.domain.AgentDecision;
-import com.stocksense.domain.AppUser;
 import com.stocksense.dto.forecast.FestivalForecastResponse;
+import com.stocksense.dto.insight.InsightRequest;
+import com.stocksense.dto.insight.InsightResponse;
 import com.stocksense.exception.AgentUnavailableException;
 import com.stocksense.exception.ResourceNotFoundException;
 import com.stocksense.repository.AgentDecisionRepository;
 import com.stocksense.repository.BranchRepository;
 import com.stocksense.repository.UserRepository;
 import com.stocksense.security.TenantContext;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -32,6 +36,7 @@ import java.util.Map;
 public class AgentController {
 
     private final FestivalForecastAgent festivalAgent;
+    private final InsightAgent insightAgent;
     private final AnthropicClient anthropicClient;
     private final AgentDecisionRepository decisionRepository;
     private final ReorderJobPublisher reorderJobPublisher;
@@ -83,6 +88,17 @@ public class AgentController {
         return Map.of("jobId", jobId
                 , "status", "QUEUED"
                 , "branchId", branchId);
+    }
+
+    /**
+     * Insight Agent (Phase 5). Answers a natural-language question (Bangla or English) by generating
+     * and running a guarded, read-only SELECT, then returning the rows plus a plain-language answer.
+     * Synchronous — the query is fast — and tenant-scoped via {@link TenantContext}.
+     */
+    @PostMapping("/insight")
+    @PreAuthorize("hasAnyRole('OWNER','MANAGER')")
+    public InsightResponse insight(@Valid @RequestBody InsightRequest request) {
+        return insightAgent.ask(request.question());
     }
 
     /** Audit log of agent decisions (most recent first). */

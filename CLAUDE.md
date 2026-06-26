@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-**StockSense BD** — AI-powered inventory and demand-forecasting for mid-size retail chains (10–50 outlets) in Bangladesh. The project is being built phase by phase per `brief.md`. **Phase 0 (scaffold) and Phase 1 (core CRUD backend) are complete.**
+**StockSense BD** — AI-powered inventory and demand-forecasting for mid-size retail chains (10–50 outlets) in Bangladesh. The project is being built phase by phase per `brief.md`. **Phases 0–5 are complete** (scaffold, core CRUD backend, Angular shell, Festival Demand Agent, Smart Reorder Agent + HITL, Insight Agent / Text-to-SQL).
 
 - Base package: `com.stocksense`
 - Spring Boot 4.0.2, Java 17
@@ -37,20 +37,22 @@ Docker daemon is **colima**. If it's not running: `colima start`. If colima fail
 
 ```
 src/main/java/com/stocksense/
-├── config/         SecurityConfig, JwtProperties, CorsProperties, AnthropicProperties
+├── config/         SecurityConfig, JwtProperties, CorsProperties, AnthropicProperties,
+│                   InsightProperties, InsightDataSourceConfig (read-only datasource)
 ├── security/       JwtTokenProvider, JwtAuthenticationFilter, TenantContext, UserDetailsServiceImpl
 ├── domain/         All 14 JPA entities + Role/OrderStatus enums
 ├── repository/     One JpaRepository per entity
 ├── service/        Business logic — all methods tenant-scoped
-├── agent/          Agentic layer (Phase 3+): FestivalForecastAgent, SmartReorderAgent,
+├── agent/          Agentic layer (Phase 3+): FestivalForecastAgent, SmartReorderAgent, InsightAgent,
 │   │               AgentAuditService, RateLimiter
 │   ├── anthropic/  AnthropicClient + AnthropicApi (direct Messages API client)
-│   ├── tools/      FestivalAgentTools, ReorderAgentTools (function-calling tools)
+│   ├── tools/      FestivalAgentTools, ReorderAgentTools, InsightAgentTools (function-calling tools)
+│   ├── sql/        SqlGuard, ReadOnlyQueryExecutor, QueryResult (Phase 5 Text-to-SQL guardrails)
 │   └── job/        ReorderJob, ReorderJobPublisher, ReorderJobListener (async via RabbitMQ)
 ├── config/ …       + RabbitConfig (reorder queue + Jackson2 converter)
 ├── controller/     REST controllers (all under /api/**), incl. AgentController
 ├── dto/            LoginRequest, LoginResponse, RegisterRequest; dto/forecast/* (forecast output);
-│                   dto/reorder/* (PurchaseOrderView, DraftLine)
+│                   dto/reorder/* (PurchaseOrderView, DraftLine); dto/insight/* (InsightRequest/Response)
 ├── exception/      GlobalExceptionHandler, ResourceNotFoundException, ConflictException,
 │                   AgentUnavailableException (503), RateLimitExceededException (429)
 └── seed/           DataSeeder (runs at startup in non-prod profiles)
@@ -128,6 +130,45 @@ price/lead-time. **It runs off the request thread via RabbitMQ**, never synchron
   (`Jackson2JsonMessageConverter` with `new ObjectMapper()`) is used — Spring Boot 4 ships both
   Jackson 2 and 3 AMQP converters; we standardize on Jackson 2 to match the rest of the code.
 
+### Insight Agent (Phase 5 — Text-to-SQL with guardrails)
+`InsightAgent` answers a natural-language question (Bangla or English) by writing a **read-only**
+SQL `SELECT`, running it, and returning the rows plus a plain-language answer. **It is synchronous**
+(queries are fast) and tenant-scoped via `TenantContext`.
+
+- **Flow**: `POST /api/agents/insight` (OWNER/MANAGER) with body `{"question": "..."}`. The agent runs
+  a tool-calling loop: the model calls `runSqlQuery(sql)` (possibly retrying after an error) then
+  `submitInsight(answer, sql)` to end the loop. Returns `{question, answer, sql, result{columns,rows,
+  rowCount,truncated}, decisionId, generatedAt}`. Every run is audited to `agent_decisions`
+  (`agentType=INSIGHT_SQL`, the SQL stored as the reasoning). Rate-limited per tenant via Redis.
+- **Guardrails (the whole point — defense in depth)**:
+  - **Dedicated read-only datasource** (`InsightDataSourceConfig`, bean `insightDataSource`): a
+    separate Hikari pool that opens connections `read-only`, so model SQL can never reach a
+    write-capable connection. Credentials come from `INSIGHT_DB_USERNAME`/`INSIGHT_DB_PASSWORD`
+    (in prod, a MySQL user GRANTed only `SELECT` on the allowlisted tables); when unset they fall
+    back to the primary user but the connection is still read-only. The pool is lazy
+    (`minimumIdle=0`, `initializationFailTimeout=-1`) so it never opens a connection — or fails app
+    startup — unless the agent is used (this is why the H2 test profile still boots).
+  - **`SqlGuard`** (`agent/sql`): rejects anything that isn't a single `SELECT`/`WITH … SELECT` —
+    no stacked statements, no comments, no write/admin keywords, and **every `FROM`/`JOIN` table must
+    be on the allowlist** (`InsightProperties.allowedTables`). CTE names from a `WITH` are recognised
+    as virtual, not rejected. A `LIMIT` is appended when absent. The allowlist deliberately **excludes
+    `app_users`** (password hashes/PII) **and `agent_decisions`** (internal audit).
+  - **`ReadOnlyQueryExecutor`**: runs the sanitised SQL with a statement timeout
+    (`app.insight.query-timeout-seconds`) and a hard row cap (`app.insight.max-rows`).
+- **Tenant isolation is prompt-enforced**: the system prompt pins the caller's `tenant_id` and
+  instructs the model to scope every query (filtering `tenant_id`, joining branch-scoped tables —
+  `sales`/`sale_lines`/`branch_stocks` have no `tenant_id` column — through `branches`/`products`).
+  The `SqlGuard` does NOT inject tenant filters, so cross-tenant isolation here rests on the prompt;
+  acceptable while the seed data is single-tenant, but harden it (row-level filtering or per-tenant
+  views) before multi-tenant production use.
+- **Config / env**: same `ANTHROPIC_API_KEY` gate as the other agents (503 when unset). Tuning:
+  `app.insight.*` (`db-username`, `db-password`, `query-timeout-seconds`, `max-rows`,
+  `max-tool-iterations`).
+- **UI**: the "Ask AI" screen is a chat — type a question, see the answer, a result table, and a
+  "Show SQL" toggle. Includes example prompts (one in Bangla) and the same "not configured" banner.
+- **Tests**: `SqlGuardTest` pins the guardrail contract (read-only, single statement, allowlist,
+  enforced LIMIT) as a pure unit test (no Spring context).
+
 ### Spring Boot 4 autoconfig modularization
 Spring Boot 4 split many autoconfigurations out of `spring-boot-autoconfigure` into per-technology modules. **Flyway autoconfig is NOT triggered by `flyway-core` alone** — you must also depend on `org.springframework.boot:spring-boot-flyway`, otherwise migrations silently never run and Hibernate `validate` then fails with "missing table". Use `MySQLDialect` (Hibernate 7 removed `MySQL8Dialect`). `@AutoConfigureMockMvc` moved to `org.springframework.boot.webmvc.test.autoconfigure`.
 
@@ -160,7 +201,7 @@ Integration tests use H2 in MySQL-compatibility mode with Flyway disabled (`appl
 | 2 — Angular frontend shell | ✅ Done | Angular 21, standalone components, signals, Angular Material; login, dashboard, inventory, orders, placeholder ask-ai screen |
 | 3 — Festival Demand Agent | ✅ Done | Direct Anthropic Messages API client (not Spring AI — no Boot 4 release); tool-calling loop, `AgentDecision` audit, `/api/agents/festival-forecast`, live Forecast screen. Needs `ANTHROPIC_API_KEY` to run. |
 | 4 — Smart Reorder Agent + HITL | ✅ Done | Async via RabbitMQ (`stocksense.reorder.scan`); drafts PENDING_APPROVAL POs sized by festival signal + supplier price; `POST /api/agents/reorder-scan` (202); Orders screen runs scan + approves. Needs `ANTHROPIC_API_KEY` + RabbitMQ. |
-| 5 — Insight Agent (Text-to-SQL) | ⬜ Not started | Read-only DB user; strict guardrails |
+| 5 — Insight Agent (Text-to-SQL) | ✅ Done | NL→SQL over the DB (Bangla/English); dedicated read-only datasource + `SqlGuard` (single SELECT, table allowlist, statement timeout, enforced LIMIT); `POST /api/agents/insight`; `AgentDecision` audit; chat-style Ask AI screen. Needs `ANTHROPIC_API_KEY`. |
 | 6 — BD integrations | ⬜ Not started | |
 
 ## Frontend (Phase 2)
@@ -189,7 +230,7 @@ src/app/
     ├── inventory/     InventoryListComponent, ProductDetailComponent
     ├── orders/        OrdersComponent — runs AI reorder scan, PO cards with lines + approve/send
     ├── forecast/      ForecastComponent — runs the Festival Demand Agent, renders recommendations
-    └── ask-ai/        AskAiComponent (Phase 5 placeholder)
+    └── ask-ai/        AskAiComponent — Insight Agent chat (NL question → answer + result table + SQL)
 ```
 
 **Key patterns:**

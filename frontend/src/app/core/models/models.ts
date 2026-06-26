@@ -62,3 +62,19 @@ export interface PurchaseOrderView {
   lines: PoLineView[];
 }
 export interface ReorderScanResponse { jobId: string; status: string; branchId: number; }
+
+// --- Phase 5: Insight Agent (Text-to-SQL) ---
+export interface QueryResultView {
+  columns: string[];
+  rows: (string | number | boolean | null)[][];
+  rowCount: number;
+  truncated: boolean;
+}
+export interface InsightResponse {
+  question: string;
+  answer: string;
+  sql: string | null;
+  result: QueryResultView;
+  decisionId: number;
+  generatedAt: string;
+}

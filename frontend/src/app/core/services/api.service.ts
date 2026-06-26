@@ -1,6 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { AgentStatus, Branch, BranchStock, Category, FestivalEvent, FestivalForecastResponse, Product, PurchaseOrder, PurchaseOrderView, ReorderScanResponse, Supplier } from '../models/models';
+import { AgentStatus, Branch, BranchStock, Category, FestivalEvent, FestivalForecastResponse, InsightResponse, Product, PurchaseOrder, PurchaseOrderView, ReorderScanResponse, Supplier } from '../models/models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -53,5 +53,10 @@ export class ApiService {
     return this.http.post<ReorderScanResponse>('/api/agents/reorder-scan', null, {
       params: { branchId: String(branchId), horizonDays: String(horizonDays) },
     });
+  }
+
+  // Insight Agent (Phase 5 — Text-to-SQL)
+  askInsight(question: string) {
+    return this.http.post<InsightResponse>('/api/agents/insight', { question });
   }
 }

@@ -29,13 +29,14 @@ import { Category, Product } from '../../core/models/models';
     <mat-card class="filter-card">
       <mat-form-field appearance="outline" class="search-field">
         <mat-label>Search products</mat-label>
-        <input matInput [(ngModel)]="searchQuery" placeholder="Name or SKU…">
+        <input matInput [ngModel]="searchQuery()" (ngModelChange)="searchQuery.set($event)"
+               placeholder="Name or SKU…">
         <mat-icon matSuffix>search</mat-icon>
       </mat-form-field>
 
       <mat-form-field appearance="outline" class="cat-field">
         <mat-label>Category</mat-label>
-        <mat-select [(ngModel)]="selectedCategoryId">
+        <mat-select [ngModel]="selectedCategoryId()" (ngModelChange)="selectedCategoryId.set($event)">
           <mat-option [value]="null">All categories</mat-option>
           @for (c of categories(); track c.id) {
             <mat-option [value]="c.id">{{ c.name }}</mat-option>
@@ -118,8 +119,8 @@ export class InventoryListComponent implements OnInit {
   products = signal<Product[]>([]);
   categories = signal<Category[]>([]);
   loading = signal(true);
-  searchQuery = '';
-  selectedCategoryId: number | null = null;
+  searchQuery = signal('');
+  selectedCategoryId = signal<number | null>(null);
 
   columns = ['sku', 'name', 'category', 'unit', 'vat', 'actions'];
 
@@ -127,8 +128,9 @@ export class InventoryListComponent implements OnInit {
 
   filtered = computed(() => {
     let list = this.products();
-    if (this.selectedCategoryId) list = list.filter(p => p.categoryId === this.selectedCategoryId);
-    const q = this.searchQuery.toLowerCase();
+    const catId = this.selectedCategoryId();
+    if (catId) list = list.filter(p => p.categoryId === catId);
+    const q = this.searchQuery().toLowerCase();
     if (q) list = list.filter(p => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q));
     return list;
   });
