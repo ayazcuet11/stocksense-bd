@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { AgentStatus, Branch, BranchStock, Category, FestivalEvent, FestivalForecastResponse, InsightResponse, Product, PurchaseOrder, PurchaseOrderView, ReorderScanResponse, Supplier } from '../models/models';
 
@@ -6,7 +6,7 @@ import { AgentStatus, Branch, BranchStock, Category, FestivalEvent, FestivalFore
 export class ApiService {
   readonly activeBranchId = signal<number | null>(null);
 
-  constructor(private http: HttpClient) {}
+  private http = inject(HttpClient);
 
   // Branches
   getBranches() { return this.http.get<Branch[]>('/api/branches'); }

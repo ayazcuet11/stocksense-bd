@@ -1,4 +1,7 @@
-import { Component, OnInit, signal, computed, effect } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, inject } from '@angular/core';
+import { toSignal, toObservable } from '@angular/core/rxjs-interop';
+import { switchMap } from 'rxjs/operators';
+import { of } from 'rxjs';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -7,13 +10,14 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatTableModule } from '@angular/material/table';
 import { MatBadgeModule } from '@angular/material/badge';
 import { RouterLink } from '@angular/router';
-import { DecimalPipe, DatePipe } from '@angular/common';
+import { DatePipe } from '@angular/common';
 import { ApiService } from '../../core/services/api.service';
 import { BranchStock, FestivalEvent, Product, PurchaseOrder } from '../../core/models/models';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MatCardModule, MatIconModule, MatProgressBarModule, MatButtonModule,
             MatChipsModule, MatTableModule, MatBadgeModule, RouterLink, DatePipe],
   template: `
@@ -52,18 +56,18 @@ import { BranchStock, FestivalEvent, Product, PurchaseOrder } from '../../core/m
           <mat-card-subtitle>Next 90 days</mat-card-subtitle>
         </mat-card-header>
         <mat-card-content>
-          @if (upcomingFestivals().length === 0) {
+          @if (enrichedFestivals().length === 0) {
             <p class="empty">No festivals in the next 90 days.</p>
           }
-          @for (f of upcomingFestivals(); track f.id) {
+          @for (f of enrichedFestivals(); track f.id) {
             <div class="festival-item">
-              <mat-icon class="festival-icon">{{ festivalIcon(f.type) }}</mat-icon>
+              <mat-icon class="festival-icon">{{ f.icon }}</mat-icon>
               <div class="festival-info">
                 <div class="festival-name">{{ f.name }}</div>
                 <div class="festival-date">{{ f.gregorianDate | date:'mediumDate' }}</div>
               </div>
-              <mat-chip [highlighted]="true" [color]="festivalColor(f.type)">
-                {{ daysUntil(f.gregorianDate) }}d
+              <mat-chip [highlighted]="true" [color]="f.chipColor">
+                {{ f.daysUntil }}d
               </mat-chip>
             </div>
           }
@@ -85,19 +89,19 @@ import { BranchStock, FestivalEvent, Product, PurchaseOrder } from '../../core/m
         <mat-card-content>
           @if (!activeBranchId()) {
             <p class="empty">Select a branch to view stock.</p>
-          } @else if (lowStock().length === 0) {
+          } @else if (enrichedLowStock().length === 0) {
             <p class="empty">All items are well-stocked.</p>
           }
-          @for (s of lowStock().slice(0, 8); track s.id) {
+          @for (s of enrichedLowStock().slice(0, 8); track s.id) {
             <div class="reorder-item">
-              <div class="reorder-product">{{ productName(s.productId) }}</div>
+              <div class="reorder-product">{{ s.productName }}</div>
               <div class="reorder-qty">
-                <span class="qty-current" [class.critical]="s.quantity === 0">{{ s.quantity }}</span>
+                <span class="qty-current" [class.critical]="s.isCritical">{{ s.quantity }}</span>
                 <span class="qty-sep">/</span>
                 <span class="qty-threshold">{{ s.reorderThreshold }}</span>
               </div>
               <mat-progress-bar mode="determinate"
-                [value]="stockPercent(s)"
+                [value]="s.pct"
                 [color]="s.quantity === 0 ? 'warn' : 'accent'"
                 class="stock-bar">
               </mat-progress-bar>
@@ -125,12 +129,12 @@ import { BranchStock, FestivalEvent, Product, PurchaseOrder } from '../../core/m
         @if (!activeBranchId()) {
           <p class="empty">Select a branch above.</p>
         }
-        @for (s of allStock().slice(0, 10); track s.id) {
+        @for (s of enrichedAllStock(); track s.id) {
           <div class="health-row">
-            <span class="health-label">{{ productName(s.productId) }}</span>
+            <span class="health-label">{{ s.productName }}</span>
             <mat-progress-bar mode="determinate"
-              [value]="stockPercent(s)"
-              [color]="stockColor(s)"
+              [value]="s.pct"
+              [color]="s.barColor"
               class="health-bar">
             </mat-progress-bar>
             <span class="health-qty">{{ s.quantity }}</span>
@@ -171,63 +175,76 @@ import { BranchStock, FestivalEvent, Product, PurchaseOrder } from '../../core/m
     .empty { color:#999; font-style:italic; padding:16px 0; }
   `]
 })
-export class DashboardComponent implements OnInit {
-  products = signal<Product[]>([]);
-  lowStock = signal<BranchStock[]>([]);
-  allStock = signal<BranchStock[]>([]);
-  upcomingFestivals = signal<FestivalEvent[]>([]);
-  pendingOrders = signal<PurchaseOrder[]>([]);
-  activeBranchId = computed(() => this.api.activeBranchId());
+export class DashboardComponent {
+  private api = inject(ApiService);
 
-  private productMap = signal<Map<number, string>>(new Map());
+  readonly activeBranchId = this.api.activeBranchId;
 
-  constructor(private api: ApiService) {
-    effect(() => {
-      const branchId = this.activeBranchId();
-      if (branchId) {
-        this.api.getLowStock(branchId).subscribe(s => this.lowStock.set(s));
-        this.api.getStock(branchId).subscribe(s => this.allStock.set(s));
-      }
-    });
-  }
+  // Issue 4: toSignal + toObservable + switchMap replaces the effect() + subscribe pattern
+  readonly products = toSignal(this.api.getProducts(), { initialValue: [] as Product[] });
+  readonly upcomingFestivals = toSignal(this.api.getUpcomingFestivals(), { initialValue: [] as FestivalEvent[] });
+  readonly pendingOrders = toSignal(this.api.getPendingOrders(), { initialValue: [] as PurchaseOrder[] });
 
-  ngOnInit() {
-    this.api.getProducts().subscribe(p => {
-      this.products.set(p);
-      this.productMap.set(new Map(p.map(x => [x.id, x.name])));
-    });
-    this.api.getUpcomingFestivals().subscribe(f => this.upcomingFestivals.set(f));
-    this.api.getPendingOrders().subscribe(o => this.pendingOrders.set(o));
-  }
+  readonly lowStock = toSignal(
+    toObservable(this.activeBranchId).pipe(
+      switchMap(id => id != null ? this.api.getLowStock(id) : of([] as BranchStock[]))
+    ),
+    { initialValue: [] as BranchStock[] }
+  );
 
-  productName(id: number) { return this.productMap().get(id) ?? `Product ${id}`; }
+  readonly allStock = toSignal(
+    toObservable(this.activeBranchId).pipe(
+      switchMap(id => id != null ? this.api.getStock(id) : of([] as BranchStock[]))
+    ),
+    { initialValue: [] as BranchStock[] }
+  );
 
-  stockPercent(s: BranchStock) {
-    return Math.min(100, Math.round((s.quantity / (s.reorderThreshold * 3)) * 100));
-  }
+  // Issue 5: single productMap computed so every name lookup is memoised
+  private readonly productMap = computed(() =>
+    new Map(this.products().map(p => [p.id, p.name]))
+  );
 
-  stockColor(s: BranchStock): 'primary' | 'accent' | 'warn' {
-    const pct = this.stockPercent(s);
-    if (pct < 20) return 'warn';
-    if (pct < 50) return 'accent';
-    return 'primary';
-  }
+  // Issue 5: enriched computed lists — templates have no method calls
+  readonly enrichedFestivals = computed(() =>
+    this.upcomingFestivals().map(f => ({
+      ...f,
+      daysUntil: Math.ceil((new Date(f.gregorianDate).getTime() - Date.now()) / 86_400_000),
+      icon: this._festivalIcon(f.type),
+      chipColor: this._festivalColor(f.type),
+    }))
+  );
 
-  daysUntil(dateStr: string) {
-    const diff = new Date(dateStr).getTime() - Date.now();
-    return Math.ceil(diff / 86_400_000);
-  }
+  readonly enrichedLowStock = computed(() =>
+    this.lowStock().map(s => ({
+      ...s,
+      pct: Math.min(100, Math.round((s.quantity / (s.reorderThreshold * 3)) * 100)),
+      isCritical: s.quantity === 0,
+      productName: this.productMap().get(s.productId) ?? `Product ${s.productId}`,
+    }))
+  );
 
-  festivalIcon(type: string) {
+  readonly enrichedAllStock = computed(() =>
+    this.allStock().slice(0, 10).map(s => {
+      const pct = Math.min(100, Math.round((s.quantity / (s.reorderThreshold * 3)) * 100));
+      return {
+        ...s,
+        pct,
+        barColor: (pct < 20 ? 'warn' : pct < 50 ? 'accent' : 'primary') as 'primary' | 'accent' | 'warn',
+        productName: this.productMap().get(s.productId) ?? `Product ${s.productId}`,
+      };
+    })
+  );
+
+  private _festivalIcon(type: string): string {
     const icons: Record<string, string> = {
       EID_UL_FITR: 'crescent_moon', EID_UL_ADHA: 'crescent_moon',
       DURGA_PUJA: 'brightness_5', POHELA_BOISHAKH: 'celebration',
-      MANGO_SEASON: 'nature', HILSA_SEASON: 'water', MONSOON: 'water_drop'
+      MANGO_SEASON: 'nature', HILSA_SEASON: 'water', MONSOON: 'water_drop',
     };
     return icons[type] ?? 'event';
   }
 
-  festivalColor(type: string): 'primary' | 'accent' | 'warn' {
+  private _festivalColor(type: string): 'primary' | 'accent' | 'warn' {
     if (type.startsWith('EID')) return 'accent';
     if (type === 'DURGA_PUJA') return 'warn';
     return 'primary';

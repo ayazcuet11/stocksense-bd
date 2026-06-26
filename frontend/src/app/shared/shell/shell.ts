@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, OnInit, signal, inject } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatButtonModule } from '@angular/material/button';
@@ -15,6 +15,7 @@ import { Branch } from '../../core/models/models';
 @Component({
   selector: 'app-shell',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterOutlet, RouterLink, RouterLinkActive, FormsModule,
             MatToolbarModule, MatButtonModule, MatIconModule, MatSelectModule,
             MatSidenavModule, MatListModule, MatMenuModule],
@@ -107,7 +108,8 @@ export class ShellComponent implements OnInit {
   branches = signal<Branch[]>([]);
   selectedBranchId: number | null = null;
 
-  constructor(readonly auth: AuthService, private api: ApiService) {}
+  readonly auth = inject(AuthService);
+  private api = inject(ApiService);
 
   ngOnInit() {
     this.api.getBranches().subscribe(bs => {

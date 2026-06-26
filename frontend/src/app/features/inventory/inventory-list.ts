@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, OnInit, signal, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
 import { MatTableModule } from '@angular/material/table';
@@ -17,6 +17,7 @@ import { Category, Product } from '../../core/models/models';
 @Component({
   selector: 'app-inventory-list',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MatCardModule, MatTableModule, MatInputModule, MatSelectModule, MatButtonModule,
             MatIconModule, MatFormFieldModule, MatChipsModule, MatProgressSpinnerModule,
             FormsModule, DecimalPipe],
@@ -66,7 +67,7 @@ import { Category, Product } from '../../core/models/models';
           <ng-container matColumnDef="category">
             <th mat-header-cell *matHeaderCellDef>Category</th>
             <td mat-cell *matCellDef="let p">
-              <mat-chip>{{ categoryName(p.categoryId) }}</mat-chip>
+              <mat-chip>{{ categoryMap().get(p.categoryId) ?? '—' }}</mat-chip>
             </td>
           </ng-container>
 
@@ -124,7 +125,7 @@ export class InventoryListComponent implements OnInit {
 
   columns = ['sku', 'name', 'category', 'unit', 'vat', 'actions'];
 
-  private categoryMap = signal<Map<number, string>>(new Map());
+  protected readonly categoryMap = signal<Map<number, string>>(new Map());
 
   filtered = computed(() => {
     let list = this.products();
@@ -135,7 +136,8 @@ export class InventoryListComponent implements OnInit {
     return list;
   });
 
-  constructor(private api: ApiService, private router: Router) {}
+  private api = inject(ApiService);
+  private router = inject(Router);
 
   ngOnInit() {
     this.api.getCategories().subscribe(c => {
@@ -148,6 +150,5 @@ export class InventoryListComponent implements OnInit {
     });
   }
 
-  categoryName(id: number) { return this.categoryMap().get(id) ?? '—'; }
   viewDetail(id: number) { this.router.navigate(['/inventory', id]); }
 }

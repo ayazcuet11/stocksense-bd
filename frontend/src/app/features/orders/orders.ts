@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, effect, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
@@ -13,6 +13,7 @@ import { PurchaseOrderView } from '../../core/models/models';
 @Component({
   selector: 'app-orders',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [DatePipe, DecimalPipe, MatCardModule, MatButtonModule, MatIconModule,
             MatChipsModule, MatProgressSpinnerModule, MatProgressBarModule],
   template: `
@@ -166,8 +167,8 @@ export class OrdersComponent implements OnInit, OnDestroy {
 
   private pollHandle: any = null;
 
-  pendingCount = () => this.orders().filter(o => o.status === 'PENDING_APPROVAL').length;
-  canManage = () => ['OWNER', 'MANAGER'].includes(this.auth.currentRole() ?? '');
+  readonly pendingCount = computed(() => this.orders().filter(o => o.status === 'PENDING_APPROVAL').length);
+  readonly canManage = computed(() => ['OWNER', 'MANAGER'].includes(this.auth.currentRole() ?? ''));
 
   constructor() {
     this.api.getAgentStatus().subscribe({

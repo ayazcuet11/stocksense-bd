@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, OnInit, signal, computed, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
@@ -13,6 +13,7 @@ import { BranchStock, Product } from '../../core/models/models';
 @Component({
   selector: 'app-product-detail',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, MatCardModule, MatButtonModule, MatIconModule, MatDividerModule,
             MatProgressBarModule, MatChipsModule, DecimalPipe],
   template: `
@@ -99,7 +100,8 @@ export class ProductDetailComponent implements OnInit {
   stockEntries = signal<BranchStock[]>([]);
   private branchMap = signal<Map<number, string>>(new Map());
 
-  constructor(private route: ActivatedRoute, private api: ApiService) {}
+  private route = inject(ActivatedRoute);
+  private api = inject(ApiService);
 
   ngOnInit() {
     const id = Number(this.route.snapshot.paramMap.get('id'));

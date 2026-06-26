@@ -1,4 +1,4 @@
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, linkedSignal, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -13,6 +13,7 @@ import { FestivalForecastResponse } from '../../core/models/models';
 @Component({
   selector: 'app-forecast',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, DatePipe, DecimalPipe, MatCardModule, MatIconModule, MatButtonModule,
             MatProgressSpinnerModule, MatFormFieldModule, MatInputModule],
   template: `
@@ -169,19 +170,14 @@ export class ForecastComponent {
 
   agentEnabled = signal(true);
   loading = signal(false);
-  error = signal<string | null>(null);
-  result = signal<FestivalForecastResponse | null>(null);
+  // Reset to null whenever the active branch changes; can still be set manually via .set()
+  error = linkedSignal({ source: this.branchId, computation: (): string | null => null });
+  result = linkedSignal({ source: this.branchId, computation: (): FestivalForecastResponse | null => null });
 
   constructor() {
     this.api.getAgentStatus().subscribe({
       next: s => this.agentEnabled.set(s.enabled),
       error: () => this.agentEnabled.set(false),
-    });
-    // Clear stale results when the active branch changes.
-    effect(() => {
-      this.branchId();
-      this.result.set(null);
-      this.error.set(null);
     });
   }
 

@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -21,6 +21,7 @@ interface Turn {
 @Component({
   selector: 'app-ask-ai',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, DatePipe, MatCardModule, MatIconModule, MatButtonModule,
             MatProgressSpinnerModule, MatFormFieldModule, MatInputModule],
   template: `

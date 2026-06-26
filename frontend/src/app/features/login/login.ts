@@ -1,5 +1,5 @@
-import { Component, signal } from '@angular/core';
-import { FormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
+import { Component, ChangeDetectionStrategy, signal, inject } from '@angular/core';
+import { FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -12,6 +12,7 @@ import { AuthService } from '../../core/auth/auth.service';
 @Component({
   selector: 'app-login',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ReactiveFormsModule, MatCardModule, MatFormFieldModule, MatInputModule,
             MatButtonModule, MatProgressSpinnerModule, MatIconModule],
   template: `
@@ -74,23 +75,23 @@ import { AuthService } from '../../core/auth/auth.service';
   `]
 })
 export class LoginComponent {
-  form: FormGroup;
+  private fb = inject(FormBuilder);
+  private auth = inject(AuthService);
+  private router = inject(Router);
+
+  form = this.fb.nonNullable.group({
+    email: ['', [Validators.required, Validators.email]],
+    password: ['', Validators.required],
+  });
   loading = signal(false);
   error = signal('');
   showPassword = signal(false);
-
-  constructor(private fb: FormBuilder, private auth: AuthService, private router: Router) {
-    this.form = fb.group({
-      email: ['', [Validators.required, Validators.email]],
-      password: ['', Validators.required]
-    });
-  }
 
   submit() {
     if (this.form.invalid) return;
     this.loading.set(true);
     this.error.set('');
-    this.auth.login(this.form.value).subscribe({
+    this.auth.login(this.form.getRawValue()).subscribe({
       next: () => this.router.navigate(['/dashboard']),
       error: () => {
         this.error.set('Invalid email or password.');
