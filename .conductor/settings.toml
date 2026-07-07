@@ -1,0 +1,43 @@
+#:schema https://conductor.build/schemas/settings.repo.schema.json
+
+# StockSense BD — shared Conductor config.
+#
+# Topology: Spring Boot 4 backend (host process, port 8080) + Angular 21 dev
+# server (frontend/, port 4200, proxies /api -> :8080) + a single shared Docker
+# Compose infra stack (MySQL/pgvector/Redis/RabbitMQ) pinned to the project name
+# "stocksense-bd" on FIXED ports (3306/5432/6379/5672/15672).
+#
+# Because the infra stack, the backend's :8080, and the frontend proxy target are
+# all fixed and shared across workspaces, only one workspace can run the app at a
+# time -> run_mode = "nonconcurrent". CONDUCTOR_PORT is intentionally NOT used:
+# the DB stack has fixed ports and the Angular proxy hardcodes localhost:8080.
+
+[scripts]
+# Keep the root checkout current, then install per-workspace frontend deps
+# (node_modules is gitignored). Maven deps live in the shared ~/.m2, so the
+# backend needs no per-workspace install. || true so a non-ff root never fails setup.
+setup = "git -C \"$CONDUCTOR_ROOT_PATH\" fetch --prune origin && git -C \"$CONDUCTOR_ROOT_PATH\" pull --ff-only || true; cd frontend && npm ci"
+
+# Free the shared infra stack when a workspace is archived. Non-destructive:
+# named volumes persist (never `down -v`). Data is rebuilt by Flyway + DataSeeder
+# on the next backend start if the volumes are ever emptied.
+archive = "docker-compose stop || true"
+
+# Shared single infra stack + fixed :8080 backend => never run two at once.
+run_mode = "nonconcurrent"
+
+# Default: bring infra up (idempotent) then run the API on :8080.
+[scripts.run.app]
+command = "docker-compose up -d && ./mvnw spring-boot:run"
+default = true
+icon = "rocket"
+
+# Angular dev server on :4200, proxies /api/** -> :8080. Run alongside `app`.
+[scripts.run.frontend]
+command = "cd frontend && npm start"
+icon = "globe"
+
+# Just the Docker infra (MySQL/pgvector/Redis/RabbitMQ), no app.
+[scripts.run.infra]
+command = "docker-compose up -d"
+icon = "database"
